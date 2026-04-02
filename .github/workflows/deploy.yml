@@ -29,8 +29,9 @@ jobs:
           PORT: 3000
           BASE_PATH: /Capstonesecondtry/
         run: |
+          cd artifacts/meal-market
           npm install
-          npm run build --prefix artifacts/meal-market
+          npm run build
 
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
