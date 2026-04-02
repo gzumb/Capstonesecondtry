@@ -87,76 +87,84 @@ export default function MyListings() {
           </div>
         ) : listings && listings.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {listings.map((listing) => (
-              <Card key={listing.id} className="flex flex-col overflow-hidden border-border group">
-                <CardHeader className="pb-3 border-b bg-muted/20">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="text-3xl font-bold text-primary mb-1">{listing.points_amount}</div>
-                      <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Meal Points</div>
+            {listings.map((listing) => {
+              const isExpired = listing.expires_at && new Date(listing.expires_at) < new Date();
+              return (
+                <Card key={listing.id} className={`flex flex-col overflow-hidden border-border group ${isExpired ? 'opacity-70' : ''}`}>
+                  <CardHeader className="pb-3 border-b bg-muted/20">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="text-3xl font-bold text-primary mb-1">{listing.points_amount}</div>
+                        <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Meal Points</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-foreground">${(Number(listing.points_amount) * Number(listing.price_per_point)).toFixed(2)}</div>
+                        <div className="text-xs text-muted-foreground">${Number(listing.price_per_point).toFixed(2)} / pt</div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-foreground">${(Number(listing.points_amount) * Number(listing.price_per_point)).toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">${Number(listing.price_per_point).toFixed(2)} / pt</div>
+                  </CardHeader>
+                  <CardContent className="py-4 flex-1">
+                    <div className="flex flex-wrap justify-between items-center mb-3 gap-2">
+                      <div className="flex gap-2">
+                        <Badge variant={isExpired ? "destructive" : listing.status === "active" ? "default" : "secondary"} className={!isExpired && listing.status === "active" ? "bg-primary text-primary-foreground" : ""}>
+                          {isExpired ? "Expired" : listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
+                        </Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {isExpired
+                          ? `Expired ${new Date(listing.expires_at).toLocaleDateString()}`
+                          : `Expires ${new Date(listing.expires_at).toLocaleDateString()}`
+                        }
+                      </span>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="py-4 flex-1">
-                  <div className="flex justify-between items-center mb-3">
-                    <Badge variant={listing.status === "active" ? "default" : "secondary"} className={listing.status === "active" ? "bg-primary text-primary-foreground" : ""}>
-                      {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      Listed {new Date(listing.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  
-                  {listing.description && (
-                    <p className="mt-4 text-sm text-foreground/80 line-clamp-2">
-                      {listing.description}
-                    </p>
-                  )}
-                </CardContent>
-                <CardFooter className="pt-4 pb-4 px-6 bg-muted/10 border-t flex gap-2">
-                  <Select 
-                    value={listing.status} 
-                    onValueChange={(val) => handleStatusChange(listing.id, val)}
-                    disabled={updateMutation.isPending}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Update Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="sold">Sold</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    
+                    {listing.description && (
+                      <p className="mt-4 text-sm text-foreground/80 line-clamp-2">
+                        {listing.description}
+                      </p>
+                    )}
+                  </CardContent>
+                  <CardFooter className="pt-4 pb-4 px-6 bg-muted/10 border-t flex gap-2">
+                    <Select 
+                      value={listing.status} 
+                      onValueChange={(val) => handleStatusChange(listing.id, val)}
+                      disabled={updateMutation.isPending}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Update Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="sold">Sold</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
 
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="icon" className="text-destructive hover:bg-destructive hover:text-destructive-foreground shrink-0 border-destructive/20">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Listing?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This action cannot be undone. This will permanently delete your listing for {listing.points_amount} points.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDelete(listing.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </CardFooter>
-              </Card>
-            ))}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="icon" className="text-destructive hover:bg-destructive hover:text-destructive-foreground shrink-0 border-destructive/20">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Listing?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete your listing for {listing.points_amount} points.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(listing.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </CardFooter>
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-32 bg-muted/10 rounded-2xl border border-dashed">

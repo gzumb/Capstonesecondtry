@@ -15,7 +15,20 @@ export default function Listings() {
   const { data: listings, isLoading } = useQuery({
     queryKey: ["listings", search, sortBy],
     queryFn: async () => {
-      let query = supabase.from("listings").select("*").eq("status", "active");
+      let query = supabase
+        .from("listings")
+        .select(`
+          id,
+          points_amount,
+          price_per_point,
+          description,
+          status,
+          created_at,
+          expires_at,
+          seller:users(id, name, school)
+        `)
+        .eq("status", "active")
+        .gt("expires_at", new Date().toISOString());
       if (search) query = query.ilike("description", `%${search}%`);
       if (sortBy === "price_asc") query = query.order("price_per_point", { ascending: true });
       else if (sortBy === "price_desc") query = query.order("price_per_point", { ascending: false });

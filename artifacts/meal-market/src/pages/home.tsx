@@ -21,7 +21,8 @@ export default function Home() {
       let query = supabase
         .from("listings")
         .select("*")
-        .eq("status", "active");
+        .eq("status", "active")
+        .gt("expires_at", new Date().toISOString());
 
       if (search) {
         query = query.ilike("description", `%${search}%`);
