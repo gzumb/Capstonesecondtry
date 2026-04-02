@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 
 export interface User {
-  id: number;
+  id: string;
   email: string;
   name: string;
   school: string;
@@ -22,36 +22,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
 
+  const mapUser = (sbUser: SupabaseUser): User => ({
+    id: sbUser.id, // Use the real UUID string
+    email: sbUser.email || "",
+    name: sbUser.user_metadata?.name || sbUser.email?.split("@")[0] || "User",
+    school: sbUser.user_metadata?.school || "Not specified",
+  });
+
   useEffect(() => {
-    // Check active sessions and sets the user
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        // Map Supabase user to our local User type
-        // In a real app, you'd fetch the profile from a 'profiles' table
-        setUser({
-          id: parseInt(session.user.id.slice(0, 8), 16) || 1, // Hacky mapping for demo
-          email: session.user.email || "",
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "User",
-          school: session.user.user_metadata?.school || "Not specified",
-        });
-      } else {
-        setUser(null);
-      }
+      setUser(session?.user ? mapUser(session.user) : null);
       setIsLoading(false);
     });
 
-    // Listen for changes on auth state (logged in, signed out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser({
-          id: parseInt(session.user.id.slice(0, 8), 16) || 1,
-          email: session.user.email || "",
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "User",
-          school: session.user.user_metadata?.school || "Not specified",
-        });
-      } else {
-        setUser(null);
-      }
+      setUser(session?.user ? mapUser(session.user) : null);
       setIsLoading(false);
     });
 
