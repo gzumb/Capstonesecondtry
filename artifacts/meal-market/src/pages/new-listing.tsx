@@ -6,10 +6,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { useCreateListing, getGetListingsQueryKey, getGetMyListingsQueryKey } from "@workspace/api-client-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/auth-context";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calculator } from "lucide-react";
 
@@ -22,8 +24,9 @@ const newListingSchema = z.object({
 type NewListingFormValues = z.infer<typeof newListingSchema>;
 
 export default function NewListing() {
-  const createListingMutation = useCreateListing();
+  const [isPending, setIsPending] = useState(false);
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -40,28 +43,41 @@ export default function NewListing() {
   const pricePerPoint = form.watch("pricePerPoint");
   const totalPrice = (pointsAmount || 0) * (pricePerPoint || 0);
 
-  const onSubmit = (data: NewListingFormValues) => {
-    createListingMutation.mutate(
-      { data },
-      {
-        onSuccess: (res) => {
-          queryClient.invalidateQueries({ queryKey: getGetListingsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetMyListingsQueryKey() });
-          toast({
-            title: "Listing created",
-            description: "Your meal points are now listed for sale.",
-          });
-          setLocation("/my-listings");
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Error",
-            description: err.response?.data?.error || "Failed to create listing",
-            variant: "destructive",
-          });
-        },
-      }
-    );
+  const onSubmit = async (data: NewListingFormValues) => {
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in to create a listing." });
+      return;
+    }
+
+    setIsPending(true);
+    try {
+      const { error } = await supabase
+        .from("listings")
+        .insert({
+          seller_id: user.id,
+          points_amount: data.pointsAmount,
+          price_per_point: data.pricePerPoint,
+          description: data.description,
+          status: "active",
+        });
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ["listings"] });
+      toast({
+        title: "Listing created",
+        description: "Your meal points are now listed for sale.",
+      });
+      setLocation("/my-listings");
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to create listing",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -126,8 +142,8 @@ export default function NewListing() {
                     <Button type="button" variant="outline" className="w-full" onClick={() => setLocation("/my-listings")}>
                       Cancel
                     </Button>
-                    <Button type="submit" className="w-full bg-accent text-accent-foreground hover:bg-accent/90 font-bold" disabled={createListingMutation.isPending}>
-                      {createListingMutation.isPending ? "Creating..." : "Create Listing"}
+                    <Button type="submit" className="w-full bg-accent text-accent-foreground hover:bg-accent/90 font-bold" disabled={isPending}>
+                      {isPending ? "Creating..." : "Create Listing"}
                     </Button>
                   </div>
                 </form>

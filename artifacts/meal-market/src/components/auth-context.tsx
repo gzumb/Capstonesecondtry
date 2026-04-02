@@ -1,47 +1,69 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { useGetMe, User } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
+import { supabase } from "@/lib/supabase";
+import { User as SupabaseUser } from "@supabase/supabase-js";
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  school: string;
+}
 
 interface AuthContextType {
   user: User | null | undefined;
   isLoading: boolean;
-  login: (token: string) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(
-    typeof window !== "undefined" ? localStorage.getItem("meal_market_token") : null
-  );
-
-  const { data: user, isLoading, isError, error } = useGetMe({
-    query: {
-      enabled: !!token,
-      retry: false,
-    },
-  });
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (isError) {
-      setToken(null);
-      localStorage.removeItem("meal_market_token");
-    }
-  }, [isError]);
+    // Check active sessions and sets the user
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        // Map Supabase user to our local User type
+        // In a real app, you'd fetch the profile from a 'profiles' table
+        setUser({
+          id: parseInt(session.user.id.slice(0, 8), 16) || 1, // Hacky mapping for demo
+          email: session.user.email || "",
+          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "User",
+          school: session.user.user_metadata?.school || "Not specified",
+        });
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
 
-  const login = (newToken: string) => {
-    setToken(newToken);
-    localStorage.setItem("meal_market_token", newToken);
-  };
+    // Listen for changes on auth state (logged in, signed out, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: parseInt(session.user.id.slice(0, 8), 16) || 1,
+          email: session.user.email || "",
+          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "User",
+          school: session.user.user_metadata?.school || "Not specified",
+        });
+      } else {
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
 
-  const logout = () => {
-    setToken(null);
-    localStorage.removeItem("meal_market_token");
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const logout = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading: isLoading && !!token, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, logout }}>
       {children}
     </AuthContext.Provider>
   );

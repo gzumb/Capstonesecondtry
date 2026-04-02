@@ -4,28 +4,65 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useGetListings, useGetListingStats, GetListingsSortBy, getGetListingsQueryKey, getGetListingStatsQueryKey } from "@workspace/api-client-react";
 import { ArrowRight, MessageSquare, Search, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
 
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+
 export default function Home() {
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<GetListingsSortBy>("newest");
+  const [sortBy, setSortBy] = useState("newest");
   
-  const { data: listings, isLoading: isLoadingListings } = useGetListings({
-    search: search || undefined,
-    sortBy,
-  }, {
-    query: {
-      queryKey: getGetListingsQueryKey({ search: search || undefined, sortBy })
-    }
+  const { data: listings, isLoading: isLoadingListings } = useQuery({
+    queryKey: ["listings", search, sortBy],
+    queryFn: async () => {
+      let query = supabase
+        .from("listings")
+        .select("*")
+        .eq("status", "active");
+
+      if (search) {
+        query = query.ilike("description", `%${search}%`);
+      }
+
+      if (sortBy === "price_low") {
+        query = query.order("price_per_point", { ascending: true });
+      } else if (sortBy === "price_high") {
+        query = query.order("price_per_point", { ascending: false });
+      } else {
+        query = query.order("created_at", { ascending: false });
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
   });
   
-  const { data: stats } = useGetListingStats({
-    query: {
-      queryKey: getGetListingStatsQueryKey()
-    }
+  const { data: stats } = useQuery({
+    queryKey: ["listing-stats"],
+    queryFn: async () => {
+      const { data: listings, error } = await supabase
+        .from("listings")
+        .select("points_amount, price_per_point, status");
+      
+      if (error) throw error;
+
+      const activeListings = listings.filter(l => l.status === "active");
+      const totalPoints = activeListings.reduce((sum, l) => sum + l.points_amount, 0);
+      const avgPrice = activeListings.length > 0 
+        ? activeListings.reduce((sum, l) => sum + Number(l.price_per_point), 0) / activeListings.length 
+        : 0;
+
+      return {
+        totalActiveListings: activeListings.length,
+        totalPointsAvailable: totalPoints,
+        avgPricePerPoint: avgPrice,
+        totalSchools: 1, // Static for now or fetch from profiles
+      };
+    },
   });
 
   return (

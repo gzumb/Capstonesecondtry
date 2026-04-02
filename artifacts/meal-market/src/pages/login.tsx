@@ -4,8 +4,8 @@ import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { useLogin } from "@workspace/api-client-react";
-import { useAuth } from "@/components/auth-context";
+import { supabase } from "@/lib/supabase";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
@@ -17,8 +17,7 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function Login() {
-  const loginMutation = useLogin();
-  const { login } = useAuth();
+  const [isPending, setIsPending] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -30,23 +29,26 @@ export default function Login() {
     },
   });
 
-  const onSubmit = (data: LoginFormValues) => {
-    loginMutation.mutate(
-      { data },
-      {
-        onSuccess: (res) => {
-          login(res.token);
-          setLocation("/");
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Login failed",
-            description: err.response?.data?.error || "Invalid credentials",
-            variant: "destructive",
-          });
-        },
-      }
-    );
+  const onSubmit = async (data: LoginFormValues) => {
+    setIsPending(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (error) throw error;
+
+      setLocation("/");
+    } catch (err: any) {
+      toast({
+        title: "Login failed",
+        description: err.message || "Invalid credentials",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -90,8 +92,8 @@ export default function Login() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={loginMutation.isPending}>
-                {loginMutation.isPending ? "Logging in..." : "Log in"}
+              <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={isPending}>
+                {isPending ? "Logging in..." : "Log in"}
               </Button>
             </form>
           </Form>

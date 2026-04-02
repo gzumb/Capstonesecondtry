@@ -4,8 +4,8 @@ import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { useRegister } from "@workspace/api-client-react";
-import { useAuth } from "@/components/auth-context";
+import { supabase } from "@/lib/supabase";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
@@ -19,8 +19,7 @@ const registerSchema = z.object({
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function Register() {
-  const registerMutation = useRegister();
-  const { login } = useAuth();
+  const [isPending, setIsPending] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -34,23 +33,36 @@ export default function Register() {
     },
   });
 
-  const onSubmit = (data: RegisterFormValues) => {
-    registerMutation.mutate(
-      { data },
-      {
-        onSuccess: (res) => {
-          login(res.token);
-          setLocation("/");
+  const onSubmit = async (data: RegisterFormValues) => {
+    setIsPending(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            name: data.name,
+            school: data.school,
+          },
         },
-        onError: (err: any) => {
-          toast({
-            title: "Registration failed",
-            description: err.response?.data?.error || "Something went wrong",
-            variant: "destructive",
-          });
-        },
-      }
-    );
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Registration successful",
+        description: "Please check your email for the confirmation link.",
+      });
+      setLocation("/login");
+    } catch (err: any) {
+      toast({
+        title: "Registration failed",
+        description: err.message || "Something went wrong",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -120,8 +132,8 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={registerMutation.isPending}>
-                {registerMutation.isPending ? "Creating account..." : "Sign up"}
+              <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={isPending}>
+                {isPending ? "Creating account..." : "Sign up"}
               </Button>
             </form>
           </Form>

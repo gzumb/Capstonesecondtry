@@ -3,10 +3,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/components/auth-context";
-import { useGetListing, getGetListingQueryKey, useStartConversation, ListingStatus } from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { GraduationCap, MessageSquare, ArrowLeft, Clock } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+
+enum ListingStatus {
+  active = "active",
+  completed = "completed",
+  cancelled = "cancelled",
+}
 
 export default function ListingDetail() {
   const { id } = useParams<{ id: string }>();
@@ -14,15 +21,66 @@ export default function ListingDetail() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
-  const { data: listing, isLoading } = useGetListing(listingId, {
-    query: {
-      enabled: !isNaN(listingId),
-      queryKey: getGetListingQueryKey(listingId),
+  const { data: listing, isLoading } = useQuery({
+    queryKey: ["listing", listingId],
+    enabled: !isNaN(listingId),
+    queryFn: async () => {
+      const { data: listingData, error: listingError } = await supabase
+        .from("listings")
+        .select("*")
+        .eq("id", listingId)
+        .single();
+      
+      if (listingError) throw listingError;
+
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("name, school")
+        .eq("id", listingData.seller_id)
+        .single();
+
+      if (userError) throw userError;
+
+      return {
+        ...listingData,
+        sellerName: userData.name,
+        sellerSchool: userData.school,
+        totalPrice: Number(listingData.points_amount) * Number(listingData.price_per_point),
+      };
     }
   });
 
-  const startConversationMutation = useStartConversation();
+  const startConversationMutation = useMutation({
+    mutationFn: async ({ listingId, initialMessage }: { listingId: number, initialMessage: string }) => {
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: conv, error: convError } = await supabase
+        .from("conversations")
+        .insert({
+          listing_id: listingId,
+          buyer_id: user.id,
+          seller_id: listing?.seller_id,
+        })
+        .select()
+        .single();
+      
+      if (convError) throw convError;
+
+      const { error: msgError } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: conv.id,
+          sender_id: user.id,
+          content: initialMessage,
+        });
+
+      if (msgError) throw msgError;
+
+      return conv;
+    }
+  });
 
   const handleContactSeller = () => {
     if (!user) {
@@ -34,7 +92,7 @@ export default function ListingDetail() {
       return;
     }
 
-    if (user.id === listing?.sellerId) {
+    if (user.id === listing?.seller_id) {
       toast({
         title: "Cannot contact yourself",
         description: "This is your own listing.",
@@ -44,7 +102,7 @@ export default function ListingDetail() {
     }
 
     startConversationMutation.mutate(
-      { data: { listingId, initialMessage: `Hi, I'm interested in buying your ${listing?.pointsAmount} meal points.` } },
+      { listingId, initialMessage: `Hi, I'm interested in buying your ${listing?.points_amount} meal points.` },
       {
         onSuccess: (conversation) => {
           setLocation(`/messages/${conversation.id}`);
@@ -52,7 +110,7 @@ export default function ListingDetail() {
         onError: (err: any) => {
           toast({
             title: "Error",
-            description: err.response?.data?.error || "Failed to start conversation",
+            description: err.message || "Failed to start conversation",
             variant: "destructive",
           });
         }
@@ -91,7 +149,7 @@ export default function ListingDetail() {
     );
   }
 
-  const isOwner = user?.id === listing.sellerId;
+  const isOwner = user?.id === listing.seller_id;
 
   return (
     <Layout>
@@ -113,11 +171,11 @@ export default function ListingDetail() {
                   </Badge>
                   <div className="text-sm text-muted-foreground flex items-center gap-1">
                     <Clock className="h-4 w-4" />
-                    Listed {new Date(listing.createdAt).toLocaleDateString()}
+                    Listed {new Date(listing.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 
-                <h1 className="text-5xl font-extrabold text-foreground mb-2">{listing.pointsAmount} Points</h1>
+                <h1 className="text-5xl font-extrabold text-foreground mb-2">{listing.points_amount} Points</h1>
                 <p className="text-xl text-muted-foreground">Cafeteria Meal Points</p>
               </div>
               
