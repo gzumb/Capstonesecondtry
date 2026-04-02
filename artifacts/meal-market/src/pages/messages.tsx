@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
-import { useGetConversations, getGetConversationsQueryKey } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { Link } from "wouter";
 import { MessageSquare, Clock } from "lucide-react";
 import { useAuth } from "@/components/auth-context";
@@ -8,11 +9,19 @@ import { useAuth } from "@/components/auth-context";
 export default function Messages() {
   const { user } = useAuth();
   
-  const { data: conversations, isLoading } = useGetConversations({
-    query: {
-      queryKey: getGetConversationsQueryKey(),
-      refetchInterval: 10000,
-    }
+  const { data: conversations, isLoading } = useQuery({
+    queryKey: ["conversations"],
+    enabled: !!user,
+    refetchInterval: 10000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
   });
 
   return (
@@ -30,40 +39,30 @@ export default function Messages() {
         ) : conversations && conversations.length > 0 ? (
           <div className="bg-card rounded-xl border shadow-sm divide-y">
             {conversations.map((conv) => {
-              const isBuyer = user?.id === conv.buyerId;
-              const otherUser = isBuyer ? conv.sellerName : conv.buyerName;
-              const otherUserId = isBuyer ? conv.sellerId : conv.buyerId;
+              const isBuyer = user?.id === conv.buyer_id;
               
               return (
                 <Link key={conv.id} href={`/messages/${conv.id}`} className="block hover:bg-muted/50 transition-colors p-6">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
-                        {otherUser.charAt(0).toUpperCase()}
+                        {isBuyer ? "S" : "B"}
                       </div>
                       <div>
-                        <h3 className="font-semibold text-lg">{otherUser}</h3>
+                        <h3 className="font-semibold text-lg">
+                          {isBuyer ? `Seller #${conv.seller_id}` : `Buyer #${conv.buyer_id}`}
+                        </h3>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <span className={isBuyer ? "text-blue-600" : "text-green-600"}>
-                            {isBuyer ? "Buying" : "Selling"} {conv.listingPointsAmount} points
+                            {isBuyer ? "Buying" : "Selling"} — Listing #{conv.listing_id}
                           </span>
-                          <span>•</span>
-                          <span>${conv.listingTotalPrice.toFixed(2)}</span>
                         </p>
                       </div>
                     </div>
-                    {conv.lastMessageAt && (
-                      <div className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {new Date(conv.lastMessageAt).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="pl-13 mt-2">
-                    <p className="text-sm text-foreground/80 line-clamp-1">
-                      {conv.lastMessage || <span className="italic text-muted-foreground">No messages yet</span>}
-                    </p>
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(conv.created_at).toLocaleDateString()}
+                    </div>
                   </div>
                 </Link>
               );

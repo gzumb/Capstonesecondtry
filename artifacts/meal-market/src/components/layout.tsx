@@ -11,20 +11,14 @@ import {
 } from "./ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { LayoutDashboard, LogOut, MessageSquare, Plus, Receipt, User as UserIcon } from "lucide-react";
-import { useLogout } from "@workspace/api-client-react";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
-  const logoutMutation = useLogout();
 
-  const handleLogout = () => {
-    logoutMutation.mutate(undefined, {
-      onSuccess: () => {
-        logout();
-        setLocation("/");
-      },
-    });
+  const handleLogout = async () => {
+    await logout();
+    setLocation("/");
   };
 
   return (

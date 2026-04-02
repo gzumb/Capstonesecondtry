@@ -1,15 +1,27 @@
 import { Layout } from "@/components/layout";
-import { useGetTransactions, getGetTransactionsQueryKey, TransactionRole } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowDownRight, ArrowUpRight, ReceiptText } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Transactions() {
-  const { data: transactions, isLoading } = useGetTransactions({
-    query: {
-      queryKey: getGetTransactionsQueryKey()
-    }
+  const { user } = useAuth();
+
+  const { data: transactions, isLoading } = useQuery({
+    queryKey: ["transactions"],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data.map(tx => ({ ...tx, isBuyer: tx.buyer_id === user!.id }));
+    },
   });
 
   return (
@@ -27,7 +39,7 @@ export default function Transactions() {
         ) : transactions && transactions.length > 0 ? (
           <div className="space-y-4">
             {transactions.map((tx) => {
-              const isBuyer = tx.role === TransactionRole.buyer;
+              const isBuyer = tx.isBuyer;
               
               return (
                 <Card key={tx.id} className="overflow-hidden border-border">
@@ -45,21 +57,21 @@ export default function Transactions() {
                               {isBuyer ? "Bought Points" : "Sold Points"}
                             </h3>
                             <Badge variant="outline" className="bg-muted">
-                              {tx.pointsAmount} pts
+                              {tx.amount} pts
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {isBuyer ? "From" : "To"}: <Link href={`/profile/${isBuyer ? tx.sellerId : tx.buyerId}`} className="font-medium text-foreground hover:text-primary transition-colors">{isBuyer ? tx.sellerName : tx.buyerName}</Link>
+                            {isBuyer ? "From" : "To"}: <Link href={`/profile/${isBuyer ? tx.seller_id : tx.buyer_id}`} className="font-medium text-foreground hover:text-primary transition-colors">User #{isBuyer ? tx.seller_id : tx.buyer_id}</Link>
                           </p>
                         </div>
                       </div>
                       
                       <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2 border-t sm:border-t-0 pt-4 sm:pt-0">
                         <div className={`text-xl font-bold ${isBuyer ? "text-foreground" : "text-green-600"}`}>
-                          {isBuyer ? "-" : "+"}${tx.totalPrice.toFixed(2)}
+                          {isBuyer ? "-" : "+"}${Number(tx.amount).toFixed(2)}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {new Date(tx.createdAt).toLocaleDateString()}
+                          {new Date(tx.created_at).toLocaleDateString()}
                         </div>
                       </div>
                     </div>

@@ -2,13 +2,13 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/components/auth-context";
-import { useGetMessages, useGetConversations, useSendMessage, getGetMessagesQueryKey, useCreateTransaction, getGetConversationsQueryKey } from "@workspace/api-client-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { useParams, Link, useLocation } from "wouter";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Send, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Send, CheckCircle2, MessageSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent } from "@/components/ui/card";
-import { useQueryClient } from "@tanstack/react-query";
+import { Card } from "@/components/ui/card";
 
 export default function ChatThread() {
   const { id } = useParams<{ id: string }>();
@@ -20,25 +20,72 @@ export default function ChatThread() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  const { data: conversations } = useGetConversations({
-    query: { queryKey: getGetConversationsQueryKey() }
+  const { data: conversation, isLoading: isConversationLoading } = useQuery({
+    queryKey: ["conversation", conversationId],
+    enabled: !isNaN(conversationId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("*")
+        .eq("id", conversationId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
   });
-  
-  const conversation = conversations?.find(c => c.id === conversationId);
 
-  const { data: messages, isLoading } = useGetMessages(conversationId, {
-    query: {
-      enabled: !isNaN(conversationId),
-      queryKey: getGetMessagesQueryKey(conversationId),
-      refetchInterval: 5000, // Poll every 5 seconds
-    }
+  const { data: messages, isLoading } = useQuery({
+    queryKey: ["messages", conversationId],
+    enabled: !isNaN(conversationId),
+    refetchInterval: 5000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
   });
 
-  const sendMessageMutation = useSendMessage();
-  const createTransactionMutation = useCreateTransaction();
+  const sendMessageMutation = useMutation({
+    mutationFn: async (messageContent: string) => {
+      if (!user) throw new Error("Not authenticated");
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        content: messageContent,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["messages", conversationId] }),
+    onError: () => toast({ title: "Error", description: "Failed to send message.", variant: "destructive" }),
+  });
 
-  const isBuyer = user?.id === conversation?.buyerId;
-  const otherUser = isBuyer ? conversation?.sellerName : conversation?.buyerName;
+  const createTransactionMutation = useMutation({
+    mutationFn: async () => {
+      if (!conversation || !user) throw new Error("Not authenticated");
+      const { error } = await supabase.from("transactions").insert({
+        listing_id: conversation.listing_id,
+        buyer_id: conversation.buyer_id,
+        seller_id: conversation.seller_id,
+        amount: 0, // Amount to be calculated based on listing
+        status: "completed",
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: "Transaction complete", description: "The transaction has been recorded successfully." });
+      setLocation("/transactions");
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to create transaction", variant: "destructive" });
+    },
+  });
+
+  const isBuyer = user?.id === conversation?.buyer_id;
+  const otherUser = isBuyer ? conversation?.seller_name : conversation?.buyer_name;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -51,53 +98,16 @@ export default function ChatThread() {
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim()) return;
-
     const messageContent = content;
     setContent("");
-
-    sendMessageMutation.mutate(
-      { id: conversationId, data: { content: messageContent } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
-        },
-        onError: () => {
-          toast({
-            title: "Error",
-            description: "Failed to send message.",
-            variant: "destructive",
-          });
-          setContent(messageContent); // Restore on error
-        }
-      }
-    );
+    sendMessageMutation.mutate(messageContent, {
+      onError: () => setContent(messageContent),
+    });
   };
 
-  const handleMarkComplete = () => {
-    if (!conversation) return;
-    
-    createTransactionMutation.mutate(
-      { data: { listingId: conversation.listingId, buyerId: conversation.buyerId } },
-      {
-        onSuccess: () => {
-          toast({
-            title: "Transaction complete",
-            description: "The transaction has been recorded successfully.",
-          });
-          setLocation("/transactions");
-        },
-        onError: (err: any) => {
-          toast({
-            title: "Error",
-            description: err.response?.data?.error || "Failed to create transaction",
-            variant: "destructive",
-          });
-        }
-      }
-    );
-  };
+  const handleMarkComplete = () => createTransactionMutation.mutate();
 
-  if (!conversation && !isLoading) {
+  if (!conversation && !isConversationLoading) {
     return (
       <Layout>
         <div className="container mx-auto px-4 py-20 text-center">
@@ -122,14 +132,14 @@ export default function ChatThread() {
               </div>
               <div>
                 <h2 className="font-bold text-lg leading-none">{otherUser}</h2>
-                <Link href={`/listings/${conversation?.listingId}`} className="text-xs text-primary hover:underline">
-                  View Listing: {conversation?.listingPointsAmount} pts
+                <Link href={`/listings/${conversation?.listing_id}`} className="text-xs text-primary hover:underline">
+                  View Listing #{conversation?.listing_id}
                 </Link>
               </div>
             </div>
           </div>
           
-          {conversation && user?.id === conversation.sellerId && conversation.listingStatus === 'active' && (
+          {conversation && user?.id === conversation.seller_id && (
             <Button 
               variant="outline" 
               className="border-primary text-primary hover:bg-primary hover:text-white"
@@ -155,7 +165,7 @@ export default function ChatThread() {
               </div>
             ) : (
               messages?.map((msg) => {
-                const isMe = msg.senderId === user?.id;
+                const isMe = msg.sender_id === user?.id;
                 return (
                   <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                     <div 
@@ -167,7 +177,7 @@ export default function ChatThread() {
                     >
                       <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                       <p className={`text-[10px] mt-1 ${isMe ? "text-primary-foreground/70 text-right" : "text-muted-foreground text-left"}`}>
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>

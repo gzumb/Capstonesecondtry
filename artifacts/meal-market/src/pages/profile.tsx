@@ -1,18 +1,37 @@
 import { Layout } from "@/components/layout";
-import { useGetUserProfile, getGetUserProfileQueryKey } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { useParams } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { GraduationCap, Calendar, LayoutList, ReceiptText } from "lucide-react";
 
 export default function Profile() {
   const { id } = useParams<{ id: string }>();
-  const userId = parseInt(id, 10);
+  const userId = id;
   
-  const { data: profile, isLoading } = useGetUserProfile(userId, {
-    query: {
-      enabled: !isNaN(userId),
-      queryKey: getGetUserProfileQueryKey(userId),
-    }
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["profile", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", userId)
+        .single();
+      if (userError) throw userError;
+
+      const { count: listingCount } = await supabase
+        .from("listings")
+        .select("id", { count: "exact", head: true })
+        .eq("seller_id", userId);
+
+      const { count: transactionCount } = await supabase
+        .from("transactions")
+        .select("id", { count: "exact", head: true })
+        .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
+
+      return { ...userData, listingCount: listingCount ?? 0, transactionCount: transactionCount ?? 0 };
+    },
   });
 
   if (isLoading) {
@@ -56,7 +75,7 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center justify-center sm:justify-start gap-2">
                     <Calendar className="h-5 w-5 text-primary" />
-                    <span>Joined {new Date(profile.createdAt).toLocaleDateString([], { month: 'long', year: 'numeric' })}</span>
+                    <span>Joined {new Date(profile.created_at).toLocaleDateString([], { month: 'long', year: 'numeric' })}</span>
                   </div>
                 </div>
 

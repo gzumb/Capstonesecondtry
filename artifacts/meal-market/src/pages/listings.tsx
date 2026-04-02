@@ -1,24 +1,31 @@
 import { Layout } from "@/components/layout";
 import { ListingCard } from "@/components/listing-card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useGetListings, GetListingsSortBy, getGetListingsQueryKey } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
-import { useDebounce } from "@/hooks/use-debounce"; // We need to create this
 
 export default function Listings() {
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounce(search, 500);
-  const [sortBy, setSortBy] = useState<GetListingsSortBy>("newest");
+  const [sortBy, setSortBy] = useState("newest");
   
-  const { data: listings, isLoading } = useGetListings({
-    search: debouncedSearch || undefined,
-    sortBy,
-  }, {
-    query: {
-      queryKey: getGetListingsQueryKey({ search: debouncedSearch || undefined, sortBy })
-    }
+  const { data: listings, isLoading } = useQuery({
+    queryKey: ["listings", search, sortBy],
+    queryFn: async () => {
+      let query = supabase.from("listings").select("*").eq("status", "active");
+      if (search) query = query.ilike("description", `%${search}%`);
+      if (sortBy === "price_asc") query = query.order("price_per_point", { ascending: true });
+      else if (sortBy === "price_desc") query = query.order("price_per_point", { ascending: false });
+      else if (sortBy === "points_desc") query = query.order("points_amount", { ascending: false });
+      else if (sortBy === "points_asc") query = query.order("points_amount", { ascending: true });
+      else query = query.order("created_at", { ascending: false });
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
   });
 
   return (
@@ -40,7 +47,7 @@ export default function Listings() {
             
             <div className="flex items-center gap-2 w-full md:w-auto">
               <SlidersHorizontal className="h-5 w-5 text-muted-foreground hidden md:block" />
-              <Select value={sortBy} onValueChange={(val) => setSortBy(val as GetListingsSortBy)}>
+              <Select value={sortBy} onValueChange={(val) => setSortBy(val)}>
                 <SelectTrigger className="w-full md:w-48 h-12 bg-background">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>

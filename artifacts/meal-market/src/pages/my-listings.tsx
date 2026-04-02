@@ -3,8 +3,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useGetMyListings, useUpdateListing, useDeleteListing, ListingStatus, getGetMyListingsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/components/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Plus, Settings, Trash2 } from "lucide-react";
@@ -20,61 +21,47 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-export default function MyListings() {
-  const { data: listings, isLoading } = useGetMyListings({
-    query: {
-      queryKey: getGetMyListingsQueryKey(),
-    }
-  });
+const LISTING_STATUS = { active: "active", sold: "sold", cancelled: "cancelled" };
 
-  const updateListingMutation = useUpdateListing();
-  const deleteListingMutation = useDeleteListing();
+export default function MyListings() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const handleStatusChange = (id: number, status: ListingStatus) => {
-    updateListingMutation.mutate(
-      { id, data: { status } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetMyListingsQueryKey() });
-          toast({
-            title: "Status updated",
-            description: `Listing marked as ${status}.`,
-          });
-        },
-        onError: () => {
-          toast({
-            title: "Error",
-            description: "Failed to update status.",
-            variant: "destructive",
-          });
-        }
-      }
-    );
-  };
+  const { data: listings, isLoading } = useQuery({
+    queryKey: ["my-listings"],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("*")
+        .eq("seller_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  const handleDelete = (id: number) => {
-    deleteListingMutation.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetMyListingsQueryKey() });
-          toast({
-            title: "Listing deleted",
-            description: "The listing has been permanently removed.",
-          });
-        },
-        onError: () => {
-          toast({
-            title: "Error",
-            description: "Failed to delete listing.",
-            variant: "destructive",
-          });
-        }
-      }
-    );
-  };
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      const { error } = await supabase.from("listings").update({ status }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["my-listings"] }); toast({ title: "Status updated" }); },
+    onError: () => { toast({ title: "Error", description: "Failed to update status.", variant: "destructive" }); },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from("listings").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["my-listings"] }); toast({ title: "Listing deleted" }); },
+    onError: () => { toast({ title: "Error", description: "Failed to delete listing.", variant: "destructive" }); },
+  });
+
+  const handleStatusChange = (id: number, status: string) => updateMutation.mutate({ id, status });
+  const handleDelete = (id: number) => deleteMutation.mutate(id);
 
   return (
     <Layout>
@@ -105,22 +92,22 @@ export default function MyListings() {
                 <CardHeader className="pb-3 border-b bg-muted/20">
                   <div className="flex justify-between items-start">
                     <div>
-                      <div className="text-3xl font-bold text-primary mb-1">{listing.pointsAmount}</div>
+                      <div className="text-3xl font-bold text-primary mb-1">{listing.points_amount}</div>
                       <div className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Meal Points</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold text-foreground">${listing.totalPrice.toFixed(2)}</div>
-                      <div className="text-xs text-muted-foreground">${listing.pricePerPoint.toFixed(2)} / pt</div>
+                      <div className="text-2xl font-bold text-foreground">${(Number(listing.points_amount) * Number(listing.price_per_point)).toFixed(2)}</div>
+                      <div className="text-xs text-muted-foreground">${Number(listing.price_per_point).toFixed(2)} / pt</div>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="py-4 flex-1">
                   <div className="flex justify-between items-center mb-3">
-                    <Badge variant={listing.status === ListingStatus.active ? "default" : "secondary"} className={listing.status === ListingStatus.active ? "bg-primary text-primary-foreground" : ""}>
+                    <Badge variant={listing.status === "active" ? "default" : "secondary"} className={listing.status === "active" ? "bg-primary text-primary-foreground" : ""}>
                       {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
-                      Listed {new Date(listing.createdAt).toLocaleDateString()}
+                      Listed {new Date(listing.created_at).toLocaleDateString()}
                     </span>
                   </div>
                   
@@ -133,16 +120,16 @@ export default function MyListings() {
                 <CardFooter className="pt-4 pb-4 px-6 bg-muted/10 border-t flex gap-2">
                   <Select 
                     value={listing.status} 
-                    onValueChange={(val) => handleStatusChange(listing.id, val as ListingStatus)}
-                    disabled={updateListingMutation.isPending}
+                    onValueChange={(val) => handleStatusChange(listing.id, val)}
+                    disabled={updateMutation.isPending}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Update Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={ListingStatus.active}>Active</SelectItem>
-                      <SelectItem value={ListingStatus.sold}>Sold</SelectItem>
-                      <SelectItem value={ListingStatus.cancelled}>Cancelled</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="sold">Sold</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -156,7 +143,7 @@ export default function MyListings() {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Listing?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This action cannot be undone. This will permanently delete your listing for {listing.pointsAmount} points.
+                          This action cannot be undone. This will permanently delete your listing for {listing.points_amount} points.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
